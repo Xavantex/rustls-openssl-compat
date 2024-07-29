@@ -1,16 +1,19 @@
 CARGO ?= cargo
 CARGOFLAGS += --locked
 
-CFLAGS := -Werror -Wall -Wextra -Wpedantic -g $(shell pkg-config --cflags openssl)
+CFLAGS := -Werror -Wall -Wextra -Wpedantic $(shell pkg-config --cflags openssl)
+CPPFLAGS := -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
+RUSTFLAGS += -C target-cpu=native
 PROFILE := debug
 
 ifeq ($(PROFILE), debug)
-	CFLAGS += -fsanitize=address -fsanitize=undefined
+	CFLAGS += -g -fsanitize=address -fsanitize=undefined
 	LDFLAGS += -fsanitize=address -fsanitize=undefined
 endif
 
 ifeq ($(PROFILE), release)
-	CFLAGS += -O3
+	CFLAGS += -O3 -fstack-clash-protection
+	LDFLAGS += -Wl,-z,now -Wl,--as-needed
 	CARGOFLAGS += --release
 endif
 
@@ -22,10 +25,10 @@ endif
 all: target/ciphers target/client target/config target/constants target/server target/$(PROFILE)/libssl.so.3
 
 test: all
-	${CARGO} test $(CARGOFLAGS)
+	RUSTFLAGS="$(RUSTFLAGS)" ${CARGO} test $(CARGOFLAGS)
 
 integration: all
-	${CARGO} test $(CARGOFLAGS) -- --ignored
+	RUSTFLAGS="$(RUSTFLAGS)" ${CARGO} test $(CARGOFLAGS) -- --ignored
 
 target:
 	mkdir -p $@
@@ -34,10 +37,10 @@ target/$(PROFILE)/libssl.so.3: target/$(PROFILE)/libssl.so
 	cp -v $^ $@
 
 target/$(PROFILE)/libssl.so: *.rs src/*.rs Cargo.toml
-	${CARGO} build $(CARGOFLAGS)
+	RUSTFLAGS="$(RUSTFLAGS)" ${CARGO} build $(CARGOFLAGS)
 
 target/%.o: tests/%.c | target
-	$(CC) -o $@ -c $< $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS) $(CPPFLAGS)
 
 target/ciphers: target/ciphers.o
 	$(CC) -o $@ $^ $(LDFLAGS) $(shell pkg-config --libs openssl)
